@@ -1,0 +1,30 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Setup Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.10'
+      - name: Install dependencies
+        run: |
+          python -m venv venv
+          source venv/bin/activate
+          pip install -r requirements.txt
+      - name: Lint with flake8, isort, black
+        run: |
+          flake8 .
+          black --check .
+          isort --check-only .
+      - name: Type check
+        run: |
+          mypy .
+      - name: Run tests
+        run: |
+          pytest --maxfail=1 --disable-warnings -q

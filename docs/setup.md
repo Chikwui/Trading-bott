@@ -3,7 +3,8 @@
 This guide covers environment and infrastructure setup for AI Trader.
 
 ## Prerequisites
-- **Python 3.10+**
+
+- **Python 3.10+** (includes Python 3.13 support; ensure `pip install --upgrade pip` and `pip install pyarrow>=18.0.0` for prebuilt wheels)
 - **Git** and a **GitHub** account
 - **Docker** and **Docker Compose** (for PostgreSQL)
 - **PostgreSQL** (production)
@@ -35,14 +36,15 @@ docker-compose up -d postgres
 # or
 docker run -d --name ai-trader-postgres \
   -e POSTGRES_USER=trader -e POSTGRES_PASSWORD=secret \
-  -p 5432:5432 postgres:15
+  -p 5432:5432 postgres:17
 ```
 
 **B) Native installation (Windows or WSL2/Linux)**
 1. Install PostgreSQL:
-   - Windows: Download and run installer from https://www.postgresql.org/download/windows/
+   - Windows: Download and run installer for PostgreSQL 17 from https://www.postgresql.org/download/windows/
    - WSL2/macOS/Linux: `sudo apt update && sudo apt install -y postgresql`
 2. Ensure service is running on port 5432.
+3. Verify version: run `psql --version` (should show 17.x).
 
 After either option, update `.env`:
 ```ini

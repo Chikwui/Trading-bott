@@ -13,4 +13,5 @@ A high-performance, AI-driven trading bot for MetaTrader 5, combining:
 2. Create env: `python -m venv venv && source venv/bin/activate`
 3. Install deps: `pip install -r requirements.txt`
 4. Copy & edit config: `cp .env.example .env`
-5. Run: `python run_bot.py`
+5. Ensure PostgreSQL 17 is installed and running (if using Postgres)
+6. Run: `python run_bot.py`

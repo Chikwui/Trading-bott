@@ -12,7 +12,9 @@ scikit-learn
 joblib
 torch
 transformers
+pyarrow>=20.0.0
 SQLAlchemy
+psycopg2-binary
 loguru
 pytest
 pytest-cov

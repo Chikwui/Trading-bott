@@ -21,6 +21,22 @@ else
   echo "Assuming PostgreSQL is installed and running locally. Proceeding..."
 fi
 
+# Version check for native PostgreSQL (skip if containerized)
+if [ "$SKIP_DOCKER" = true ]; then
+  echo "Verifying local PostgreSQL version..."
+  if ! command -v psql &> /dev/null; then
+    echo "psql not found. Please install PostgreSQL 17 and ensure psql is in PATH." >&2
+    exit 1
+  fi
+  VER=$(psql --version)
+  MAJOR=$(echo "$VER" | grep -oE '[0-9]+' | head -1)
+  if [ "$MAJOR" != "17" ]; then
+    echo "Warning: found $VER, expected PostgreSQL 17.x" >&2
+  else
+    echo "PostgreSQL version $VER verified."
+  fi
+fi
+
 # 3. Initialize Python environment
 if [ ! -d venv ]; then
   python3 -m venv venv

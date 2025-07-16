@@ -55,14 +55,9 @@ Write-Host "Activating virtual environment..."
 Write-Host "Upgrading pip, setuptools, wheel..."
 python -m pip install --upgrade pip setuptools wheel
 
-Write-Host "Determining Python minor version..."
-$pv = & python -c "import sys; print(sys.version_info.minor)"
-if ($pv -eq 13) {
-    Write-Warning "Skipping PyArrow installation on Python 3.13 on Windows; use Python 3.10–3.12 or install PyArrow via conda."
-} else {
-    Write-Host "Installing PyArrow binary wheel..."
-    python -m pip install --only-binary=:all: "pyarrow>=20.0.0"
-}
+Write-Host "Installing PyArrow binary wheel..."
+python -m pip install --only-binary=:all: 'pyarrow>=20.0.0'
+
 
 Write-Host "Installing dependencies (excluding PyArrow)..."
 (Get-Content requirements.txt | Where-Object {$_ -notmatch '^pyarrow'}) | Set-Content temp_requirements.txt
@@ -81,10 +76,10 @@ python -m database.init_db
 
 # 5. Git initialization
 if (-not (Test-Path -Path .\.git)) {
-    Write-Host "Initializing Git repository..."
+    Write-Host 'Initializing Git repository...'
     git init
     git add .
-    git commit -m "Initial infra setup on Windows"
+    git commit -m 'Initial infra setup on Windows'
     Write-Host 'Add remote: git remote add origin <repo-url>'
 }
 

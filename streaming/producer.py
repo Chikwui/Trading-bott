@@ -1,18 +1,20 @@
-import json
-from kafka import KafkaProducer
-from config.settings import settings
-from utils.logger import logger
+"""
+Message producer for the trading bot.
 
-producer = KafkaProducer(
-    bootstrap_servers=[settings.KAFKA_BROKER_URL],
-    value_serializer=lambda v: json.dumps(v).encode('utf-8')
-)
+This module provides a unified interface for publishing messages
+using the configured message broker (Redis or Kafka).
+"""
+from typing import Dict, Any
+from .message_broker import get_message_producer
 
-def publish_signal(signal: dict):
-    """Publish a trade signal to Kafka."""
-    try:
-        producer.send(settings.KAFKA_SIGNAL_TOPIC, signal)
-        producer.flush()
-        logger.info(f"Published signal: {signal}")
-    except Exception as e:
-        logger.error(f"Failed to publish signal: {e}")
+# Get the appropriate producer based on configuration
+producer = get_message_producer()
+
+def publish_signal(signal: Dict[str, Any]) -> None:
+    """Publish a trade signal to the message broker.
+    
+    Args:
+        signal: Dictionary containing the trade signal data
+    """
+    from config.settings import settings
+    producer.publish(settings.SIGNAL_TOPIC, signal)

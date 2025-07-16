@@ -13,8 +13,8 @@ This guide covers environment and infrastructure setup for AI Trader.
 ## Python Virtual Environment
 ```bash
 python -m venv venv
-# Windows
-env\Scripts\activate
+# Windows (PowerShell)
+.\venv\Scripts\Activate.ps1
 # macOS/Linux
 source venv/bin/activate
 pip install -r requirements.txt
@@ -55,6 +55,54 @@ Initialize schema:
 ```bash
 python -m database.init_db
 ```
+
+## Kafka (Single-node KRaft Mode)
+
+**Option A — Kafka 4.0 (no ZooKeeper)**  
+1. Extract distribution:  
+   ```powershell
+   cd $Env:USERPROFILE\Downloads   # wherever the .tgz is
+   tar -xf kafka_4.0.0_windows-x86_64.tgz -C C:\kafka
+   ```  
+   (or extract with 7-Zip)
+
+2. Set environment variables (add to your PowerShell profile):  
+   ```powershell
+   $env:KAFKA_HOME = 'C:\kafka\kafka_4.0.0'
+   $env:Path += ";$env:KAFKA_HOME\bin\windows"
+   ```  
+   *Tip: add to your `$PROFILE` for persistence.*
+
+3. Configure single-node KRaft in `%KAFKA_HOME%\config\server.properties`:  
+   ```ini
+   node.id=1
+   process.roles=broker,controller
+   controller.quorum.voters=1@localhost:9093
+   listeners=PLAINTEXT://localhost:9092,CONTROLLER://localhost:9093
+   log.dirs=C:/kafka/data
+   ```
+
+4. Format metadata log (one-time):  
+   ```powershell
+   cd $Env:KAFKA_HOME
+   $cid = [guid]::NewGuid().ToString()
+   .\bin\windows\kafka-storage.bat format -t $cid -c .\config\server.properties
+   ```
+
+5. Start broker (keep window open):  
+   ```powershell
+   .\bin\windows\kafka-server-start.bat .\config\server.properties
+   ```  
+   *Wait for `INFO [main] started`.*
+
+6. Smoke test:  
+   ```powershell
+   kafka-topics.bat --bootstrap-server localhost:9092 --create --topic ticks --partitions 1 --replication-factor 1
+   echo "hello" | kafka-console-producer.bat --bootstrap-server localhost:9092 --topic ticks
+   kafka-console-consumer.bat --bootstrap-server localhost:9092 --topic ticks --from-beginning
+   ```
+
+⚠️ If any `zookeeper.connect` lines exist in `server.properties`, comment them out.
 
 ## Git & GitHub
 1. Initialize repo:

@@ -1,15 +1,31 @@
 import os
 import json
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load environment variables from .env file, overriding system environment variables
+env_path = Path(__file__).parent.parent / '.env'
+load_dotenv(env_path, override=True)
 
 class Settings:
-    # Kafka & Streaming
+    # Redis Configuration
+    REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+    REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+    REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
+    
+    # Message Topics
+    MESSAGE_BROKER = os.getenv("MESSAGE_BROKER", "redis")  # Can be 'redis' or 'kafka'
+    
+    # Kafka Configuration (kept for backward compatibility)
     KAFKA_BROKER_URL = os.getenv("KAFKA_BROKER_URL", "localhost:9092")
-    # Kafka topics
-    KAFKA_TICK_TOPIC = os.getenv("KAFKA_TICK_TOPIC", "market_ticks")
-    KAFKA_SIGNAL_TOPIC = os.getenv("KAFKA_SIGNAL_TOPIC", "trade_signals")
+    
+    # Message Topics (compatible with both Redis and Kafka)
+    TICK_TOPIC = os.getenv("TICK_TOPIC", "market_ticks")
+    SIGNAL_TOPIC = os.getenv("SIGNAL_TOPIC", "trade_signals")
+    
+    # Backward compatibility
+    KAFKA_TICK_TOPIC = TICK_TOPIC
+    KAFKA_SIGNAL_TOPIC = SIGNAL_TOPIC
 
     # Feast feature store
     FEAST_SERVING_URL = os.getenv("FEAST_SERVING_URL", "http://localhost:6566")
@@ -24,6 +40,7 @@ class Settings:
     MT5_LOGIN = int(os.getenv("MT5_LOGIN", 0))
     MT5_PASSWORD = os.getenv("MT5_PASSWORD", "")
     MT5_SERVER = os.getenv("MT5_SERVER", "")
+    MT5_MAGIC_NUMBER = int(os.getenv("MT5_MAGIC_NUMBER", 0))
 
     # Risk Management
     RISK_PERCENT_PER_TRADE = float(os.getenv("RISK_PERCENT_PER_TRADE", 1.0))
@@ -40,8 +57,8 @@ class Settings:
     AUTO_APPROVE_THRESHOLD = float(os.getenv("AUTO_APPROVE_THRESHOLD", 0.85))
     AUTO_REJECT_THRESHOLD = float(os.getenv("AUTO_REJECT_THRESHOLD", 0.30))
 
-# AI/ML Models
-MODEL_PATH = os.getenv("MODEL_PATH", "")
-SENTIMENT_MODEL = os.getenv("SENTIMENT_MODEL", "")
+    # AI/ML Models
+    MODEL_PATH = os.getenv("MODEL_PATH", "models/signal_predictor.joblib")
+    SENTIMENT_MODEL = os.getenv("SENTIMENT_MODEL", "models/sentiment_analyzer.joblib")
 
 settings = Settings()

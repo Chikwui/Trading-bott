@@ -10,6 +10,19 @@ from mt5_connector import connect, shutdown
 from database.session import SessionLocal
 from database.models import Trade
 from utils.logger import logger
+import argparse
+import MetaTrader5 as mt5
+
+# Parse trading mode
+parser = argparse.ArgumentParser(description="Run AI Trader Bot")
+parser.add_argument("--mode", choices=["paper","live"], default="paper", 
+                    help="Trading mode: paper or live (deprecated, use --live instead)")
+parser.add_argument("--live", action="store_true", 
+                    help="Run in live trading mode (overrides --mode if specified)")
+args = parser.parse_args()
+
+# Set trading mode
+MODE = "live" if args.live else args.mode
 
 # Initialize components
 engine = DecisionEngine()
@@ -42,6 +55,31 @@ def process_tick(tick: dict):
         # Ensure MT5 connection
         if not mt5_connected:
             mt5_connected = connect()
+        # Execute live order or simulate paper trade
+        if MODE == "live":
+            order_type = mt5.ORDER_TYPE_BUY if signal > 0 else mt5.ORDER_TYPE_SELL
+            sl = tick.get('price') - (tick.get('stop_loss_pips', 10) * 0.0001) if signal > 0 else tick.get('price') + (tick.get('stop_loss_pips', 10) * 0.0001)
+            tp = tick.get('price') + (tick.get('take_profit_pips', 10) * 0.0001) if signal > 0 else tick.get('price') - (tick.get('take_profit_pips', 10) * 0.0001)
+            request = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": symbol,
+                "volume": size,
+                "type": order_type,
+                "price": tick.get('price'),
+                "sl": sl,
+                "tp": tp,
+                "deviation": 10,
+                "magic": getattr(settings, 'MT5_MAGIC_NUMBER', 0),
+                "comment": f"AI Trader {MODE}"        
+            }
+            result = mt5.order_send(request)
+            if hasattr(result, 'retcode') and result.retcode != mt5.TRADE_RETCODE_DONE:
+                logger.error(f"MT5 order_send failed: {result.comment}")
+            else:
+                logger.info(f"MT5 order sent successfully, order ID: {getattr(result, 'order', None)}")
+        else:
+            logger.info(f"Paper trade simulated: symbol={symbol}, signal={signal}, size={size}")
+
         # Publish signal
         publish_signal({'symbol': symbol, 'signal': signal, 'size': size, 'confidence': confidence})
         # Persist trade

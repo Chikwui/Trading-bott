@@ -1,0 +1,169 @@
+name: ML Pipeline CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run performance benchmarks daily
+    - cron: '0 0 * * *'
+
+env:
+  PYTHON_VERSION: '3.9'
+  POETRY_VERSION: '1.4.2'
+  POETRY_VIRTUALENVS_CREATE: 'true'
+  POETRY_VIRTUALENVS_IN_PROJECT: 'true'
+  POETRY_NO_INTERACTION: '1'
+  POETRY_CACHE_DIR: ~/.cache/pypoetry
+
+jobs:
+  test:
+    name: Run Tests (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.8', '3.9', '3.10']
+        exclude:
+          - os: windows-latest
+            python-version: '3.8'
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+    
+    - name: Install system dependencies (Ubuntu)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y python3-dev python3-pip
+    
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: ${{ env.POETRY_VERSION }}
+        virtualenvs-create: ${{ env.POETRY_VIRTUALENVS_CREATE }}
+        virtualenvs-in-project: ${{ env.POETRY_VIRTUALENVS_IN_PROJECT }}
+    
+    - name: Set up cache
+      uses: actions/cache@v3
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('**/poetry.lock') }}
+        restore-keys: |
+          venv-${{ runner.os }}-${{ matrix.python-version }}-
+    
+    - name: Install dependencies
+      run: |
+        poetry install --no-interaction --no-ansi -E test -E ml
+    
+    - name: Run unit tests
+      run: |
+        poetry run pytest tests/unit/ \
+          --cov=core \
+          --cov-report=xml:coverage.xml \
+          --junitxml=junit/test-results.xml \
+          --cov-report=term
+    
+    - name: Run integration tests
+      run: |
+        poetry run pytest tests/ml/integration/ \
+          --cov=core \
+          --cov-append \
+          --junitxml=junit/integration-results.xml \
+          --cov-report=term
+    
+    - name: Run performance benchmarks
+      if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+      run: |
+        mkdir -p test-results/performance
+        poetry run pytest tests/ml/integration/test_edge_cases_perf.py::TestPerformance \
+          --benchmark-warmup=on \
+          --benchmark-warmup-iterations=5 \
+          --benchmark-min-rounds=10 \
+          --benchmark-json=test-results/performance/benchmark.json \
+          --junitxml=junit/benchmark-results.xml
+    
+    - name: Run stress tests
+      if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+      run: |
+        poetry run pytest tests/ml/integration/test_edge_cases_perf.py::TestStress \
+          -m stress \
+          --junitxml=junit/stress-results.xml \
+          --stress-multiplier=5
+    
+    - name: Upload test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: test-results-${{ matrix.os }}-py${{ matrix.python-version }}
+        path: |
+          junit/*.xml
+          coverage.xml
+          test-results/**/*
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      if: success() || failure()
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
+  performance-regression:
+    name: Performance Regression Check
+    needs: test
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Download test results
+      uses: actions/download-artifact@v3
+      with:
+        path: artifacts
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install analysis dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pandas numpy matplotlib scipy
+    
+    - name: Run performance analysis
+      id: analysis
+      run: |
+        python scripts/analyze_performance.py --threshold 1.2
+    
+    - name: Comment on PR
+      if: github.event_name == 'pull_request' && (steps.analysis.outputs.regression_detected == 'true')
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          const report = fs.readFileSync('performance-regression-report.md', 'utf8');
+          await github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `⚠️ **Performance Regression Detected**\n\n${report}`
+          });
+    
+    - name: Fail on regression
+      if: steps.analysis.outputs.regression_detected == 'true'
+      run: |
+        echo "Performance regression detected. See the performance report for details."
+        exit 1

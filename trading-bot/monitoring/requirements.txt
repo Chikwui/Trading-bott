@@ -1,0 +1,18 @@
+# Monitoring System Dependencies
+fastapi>=0.68.0,<0.69.0
+uvicorn>=0.15.0,<0.16.0
+python-multipart>=0.0.5,<0.1.0
+python-jose[cryptography]>=3.3.0,<4.0.0
+passlib[bcrypt]>=1.7.4,<2.0.0
+python-dotenv>=0.19.0,<0.20.0
+pydantic>=1.8.0,<2.0.0
+prometheus-client>=0.12.0,<0.13.0
+psutil>=5.9.0,<6.0.0
+dash>=2.0.0,<3.0.0
+dash-bootstrap-components>=1.0.0,<2.0.0
+plotly>=5.3.0,<6.0.0
+pandas>=1.3.0,<2.0.0
+numpy>=1.21.0,<2.0.0
+requests>=2.26.0,<3.0.0
+python-dateutil>=2.8.2,<3.0.0
+Jinja2>=3.0.0,<3.1.0  # Pinned to be compatible with Starlette 0.14.2

@@ -1,0 +1,44 @@
+# Core dependencies
+numpy>=1.21.0
+pandas>=1.3.0
+pyarrow>=6.0.0  # Required for fast parquet support
+python-dateutil>=2.8.2
+pytz>=2021.3
+
+# Machine Learning
+scikit-learn>=1.0.0
+xgboost>=1.5.0
+lightgbm>=3.3.0
+optuna>=3.0.0  # For hyperparameter optimization
+
+# Deep Learning
+tensorflow>=2.9.0
+tensorflow-probability>=0.17.0  # For probabilistic layers
+
+# Data Processing
+ta>=0.10.0  # Technical analysis library
+pydantic>=1.10.0  # For data validation
+pyyaml>=6.0  # For configuration files
+joblib>=1.1.0  # For model persistence
+
+# MetaTrader 5
+MetaTrader5>=5.0.35
+
+# Logging and Monitoring
+matplotlib>=3.5.0
+seaborn>=0.11.2
+tqdm>=4.62.0  # For progress bars
+
+# Development
+typing-extensions>=4.0.0  # For type hints
+black>=22.0.0  # Code formatting
+flake8>=4.0.0  # Linting
+pytest>=7.0.0  # Testing
+
+# Optional: For GPU support
+# tensorflow-gpu>=2.9.0  # Uncomment if you have a compatible NVIDIA GPU
+# cupy-cuda11x>=10.0.0  # For GPU-accelerated computations (replace x with your CUDA version)
+
+# For documentation
+sphinx>=4.0.0
+sphinx-rtd-theme>=1.0.0

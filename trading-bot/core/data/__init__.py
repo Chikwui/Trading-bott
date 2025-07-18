@@ -5,12 +5,13 @@ This module provides a unified interface for accessing and managing market data
 from various sources including exchanges, data providers, and local storage.
 """
 
-from .models import *
-from .provider import DataProvider, DataProviderConfig
-from .manager import DataManager
-from .cache import DataCache
-from .validator import DataValidator
-from .normalizer import DataNormalizer
+# Absolute imports
+from core.data.models import *
+from core.data.provider import DataProvider, DataProviderConfig
+from core.data.manager import DataManager
+from core.data.cache import DataCache
+from core.data.validator import DataValidator
+from core.data.normalizer import DataNormalizer
 
 __all__ = [
     'DataProvider',

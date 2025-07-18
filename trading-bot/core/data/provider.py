@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Union, Any, Type, TypeVar, Generic
 from datetime import datetime
 import asyncio
 import logging
-from ..exchange import Exchange
+from ..exchange.base import BaseExchange as Exchange
 from .models import (
     DataType, TimeFrame, DataQuality, Instrument, OHLCV, Trade, OrderBook,
     FundingRate, OpenInterest, Liquidation, MarketDataRequest, MarketDataResponse,

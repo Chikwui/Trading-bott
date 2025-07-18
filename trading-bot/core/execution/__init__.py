@@ -1,42 +1,32 @@
 """
-Trading Execution Module
+Advanced order execution system with ML integration.
 
-This module handles order execution, position management, and broker communication.
-It provides a unified interface for executing trades across different brokers and exchanges.
+This module provides a comprehensive framework for executing trades with advanced algorithms,
+risk management, and ML-powered optimization.
 """
 
-from .order import Order, OrderType, OrderSide, OrderStatus, TimeInForce
-from .position import Position, PositionStatus
-from .execution_handler import ExecutionHandler
-from .portfolio import Portfolio
-from .risk_manager import RiskManager
-from .broker import Broker, BrokerType
-from .exceptions import (
-    ExecutionError,
-    InsufficientFundsError,
-    InvalidOrderError,
-    OrderNotFoundError,
-    PositionNotFoundError,
-    RiskCheckFailedError
+from .base import ExecutionClient
+from .models import ExecutionParameters, SlippageModel, MarketImpactModel
+from .clients import (
+    TWAPExecutionClient,
+    VWAPExecutionClient,
+    IcebergExecutionClient,
+    SniperExecutionClient,
+    SmartRouter
 )
+from .monitoring import ExecutionMonitor
+from .risk import ExecutionRiskManager
 
 __all__ = [
-    'Order',
-    'OrderType',
-    'OrderSide',
-    'OrderStatus',
-    'TimeInForce',
-    'Position',
-    'PositionStatus',
-    'ExecutionHandler',
-    'Portfolio',
-    'RiskManager',
-    'Broker',
-    'BrokerType',
-    'ExecutionError',
-    'InsufficientFundsError',
-    'InvalidOrderError',
-    'OrderNotFoundError',
-    'PositionNotFoundError',
-    'RiskCheckFailedError'
+    'ExecutionClient',
+    'ExecutionParameters',
+    'SlippageModel',
+    'MarketImpactModel',
+    'TWAPExecutionClient',
+    'VWAPExecutionClient',
+    'IcebergExecutionClient',
+    'SniperExecutionClient',
+    'SmartRouter',
+    'ExecutionMonitor',
+    'ExecutionRiskManager'
 ]

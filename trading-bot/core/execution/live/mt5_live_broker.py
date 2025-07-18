@@ -17,7 +17,10 @@ import logging
 import time
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Dict, List, Optional, Union, Any, Tuple
+from typing import Dict, List, Optional, Union, Any, Tuple, Set
+from dataclasses import dataclass, field
+from enum import Enum, auto
+import uuid
 
 import MetaTrader5 as mt5
 import pandas as pd
@@ -102,6 +105,35 @@ MT5_PRICE_TYPES = {
     OrderSide.SELL: mt5.ORDER_TYPE_SELL,
 }
 
+class AdvancedOrderType(Enum):
+    """Advanced order types supported by the broker."""
+    OCO = auto()  # One-Cancels-Other
+    BRACKET = auto()  # Bracket order with take-profit and stop-loss
+    TRAILING_STOP = auto()  # Trailing stop order
+    ICEBERG = auto()  # Iceberg order (hidden quantity)
+    TWAP = auto()  # Time-Weighted Average Price
+    VWAP = auto()  # Volume-Weighted Average Price
+
+@dataclass
+class OCOOrder:
+    """One-Cancels-Other order container."""
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    primary_order: Order = None
+    secondary_order: Order = None
+    is_active: bool = True
+    created_at: datetime = field(default_factory=datetime.utcnow)
+    updated_at: datetime = field(default_factory=datetime.utcnow)
+
+@dataclass
+class BracketOrder:
+    """Bracket order container with take-profit and stop-loss."""
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    entry_order: Order = None
+    take_profit_order: Order = None
+    stop_loss_order: Order = None
+    is_active: bool = True
+    created_at: datetime = field(default_factory=datetime.utcnow)
+    updated_at: datetime = field(default_factory=datetime.utcnow)
 
 class MT5LiveBroker(Broker):
     """
@@ -148,6 +180,11 @@ class MT5LiveBroker(Broker):
         self._shutdown_event = asyncio.Event()
         self._market_data_handlers = set()
         
+        # Advanced order tracking
+        self._oco_orders: Dict[str, OCOOrder] = {}
+        self._bracket_orders: Dict[str, BracketOrder] = {}
+        self._order_to_advanced: Dict[str, str] = {}  # Maps order_id to advanced_order_id
+        
         # Cached data
         self._account_info = {}
         self._positions = {}
@@ -159,6 +196,7 @@ class MT5LiveBroker(Broker):
         self._order_lock = asyncio.Lock()
         self._position_lock = asyncio.Lock()
         self._market_data_lock = asyncio.Lock()
+        self._advanced_orders_lock = asyncio.Lock()
     
     @property
     def connected(self) -> bool:
@@ -910,3 +948,332 @@ class MT5LiveBroker(Broker):
             error_msg = f"Failed to get symbol info for {symbol}: {str(e)}"
             logger.error(error_msg, exc_info=True)
             raise MarketDataError(error_msg) from e
+    
+    async def place_advanced_order(
+        self,
+        order_type: AdvancedOrderType,
+        symbol: str,
+        side: OrderSide,
+        quantity: Decimal,
+        price: Optional[Decimal] = None,
+        stop_price: Optional[Decimal] = None,
+        take_profit: Optional[Decimal] = None,
+        stop_loss: Optional[Decimal] = None,
+        time_in_force: TimeInForce = TimeInForce.GTC,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Place an advanced order (OCO, Bracket, etc.).
+        
+        Args:
+            order_type: Type of advanced order
+            symbol: Trading symbol
+            side: Order side (BUY/SELL)
+            quantity: Order quantity
+            price: Limit price for limit orders
+            stop_price: Stop price for stop orders
+            take_profit: Take profit price
+            stop_loss: Stop loss price
+            time_in_force: Order time in force
+            **kwargs: Additional order parameters
+            
+        Returns:
+            Dictionary with order details and IDs
+            
+        Raises:
+            OrderError: If order placement fails
+            ValueError: For invalid parameters
+        """
+        if not self.connected:
+            await self.connect()
+        
+        async with self._advanced_orders_lock:
+            if order_type == AdvancedOrderType.OCO:
+                return await self._place_oco_order(
+                    symbol=symbol,
+                    side=side,
+                    quantity=quantity,
+                    price=price,
+                    stop_price=stop_price,
+                    time_in_force=time_in_force,
+                    **kwargs
+                )
+            elif order_type == AdvancedOrderType.BRACKET:
+                return await self._place_bracket_order(
+                    symbol=symbol,
+                    side=side,
+                    quantity=quantity,
+                    price=price,
+                    take_profit=take_profit,
+                    stop_loss=stop_loss,
+                    time_in_force=time_in_force,
+                    **kwargs
+                )
+            else:
+                raise ValueError(f"Unsupported advanced order type: {order_type}")
+    
+    async def _place_oco_order(
+        self,
+        symbol: str,
+        side: OrderSide,
+        quantity: Decimal,
+        price: Optional[Decimal] = None,
+        stop_price: Optional[Decimal] = None,
+        time_in_force: TimeInForce = TimeInForce.GTC,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """Place a One-Cancels-Other (OCO) order."""
+        if price is None and stop_price is None:
+            raise ValueError("Either price or stop_price must be specified for OCO order")
+        
+        # Create primary order (limit or stop)
+        primary_order_type = OrderType.LIMIT if price is not None else OrderType.STOP
+        primary_price = price or stop_price
+        
+        primary_order = await self.place_order(Order(
+            symbol=symbol,
+            order_type=primary_order_type,
+            side=side,
+            quantity=quantity,
+            price=primary_price,
+            time_in_force=time_in_force,
+            **kwargs
+        ))
+        
+        # Create secondary order (the other type)
+        secondary_order_type = OrderType.STOP if price is not None else OrderType.LIMIT
+        secondary_price = stop_price if price is not None else price
+        
+        secondary_order = await self.place_order(Order(
+            symbol=symbol,
+            order_type=secondary_order_type,
+            side=side,
+            quantity=quantity,
+            price=secondary_price,
+            time_in_force=time_in_force,
+            **kwargs
+        ))
+        
+        # Create OCO container
+        oco_order = OCOOrder(
+            primary_order=primary_order,
+            secondary_order=secondary_order
+        )
+        
+        # Store OCO order
+        async with self._advanced_orders_lock:
+            self._oco_orders[oco_order.id] = oco_order
+            self._order_to_advanced[primary_order.id] = oco_order.id
+            self._order_to_advanced[secondary_order.id] = oco_order.id
+        
+        return {
+            "order_type": "OCO",
+            "oco_id": oco_order.id,
+            "primary_order_id": primary_order.id,
+            "secondary_order_id": secondary_order.id,
+            "status": "PENDING"
+        }
+    
+    async def _place_bracket_order(
+        self,
+        symbol: str,
+        side: OrderSide,
+        quantity: Decimal,
+        price: Optional[Decimal] = None,
+        take_profit: Optional[Decimal] = None,
+        stop_loss: Optional[Decimal] = None,
+        time_in_force: TimeInForce = TimeInForce.GTC,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """Place a Bracket order with take-profit and stop-loss."""
+        if take_profit is None and stop_loss is None:
+            raise ValueError("Either take_profit or stop_loss must be specified for Bracket order")
+        
+        # Create entry order (market or limit)
+        entry_order_type = OrderType.MARKET if price is None else OrderType.LIMIT
+        
+        entry_order = await self.place_order(Order(
+            symbol=symbol,
+            order_type=entry_order_type,
+            side=side,
+            quantity=quantity,
+            price=price,
+            time_in_force=time_in_force,
+            **kwargs
+        ))
+        
+        # Create take-profit order if specified
+        take_profit_order = None
+        if take_profit is not None:
+            take_profit_side = OrderSide.SELL if side == OrderSide.BUY else OrderSide.BUY
+            take_profit_order = await self.place_order(Order(
+                symbol=symbol,
+                order_type=OrderType.LIMIT,
+                side=take_profit_side,
+                quantity=quantity,
+                price=take_profit,
+                time_in_force=time_in_force,
+                **{**kwargs, 'comment': f'TP for {entry_order.id}'}
+            ))
+        
+        # Create stop-loss order if specified
+        stop_loss_order = None
+        if stop_loss is not None:
+            stop_loss_side = OrderSide.SELL if side == OrderSide.BUY else OrderSide.BUY
+            stop_loss_order = await self.place_order(Order(
+                symbol=symbol,
+                order_type=OrderType.STOP,
+                side=stop_loss_side,
+                quantity=quantity,
+                price=stop_loss,
+                time_in_force=time_in_force,
+                **{**kwargs, 'comment': f'SL for {entry_order.id}'}
+            ))
+        
+        # Create Bracket container
+        bracket_order = BracketOrder(
+            entry_order=entry_order,
+            take_profit_order=take_profit_order,
+            stop_loss_order=stop_loss_order
+        )
+        
+        # Store Bracket order
+        async with self._advanced_orders_lock:
+            self._bracket_orders[bracket_order.id] = bracket_order
+            self._order_to_advanced[entry_order.id] = bracket_order.id
+            if take_profit_order:
+                self._order_to_advanced[take_profit_order.id] = bracket_order.id
+            if stop_loss_order:
+                self._order_to_advanced[stop_loss_order.id] = bracket_order.id
+        
+        return {
+            "order_type": "BRACKET",
+            "bracket_id": bracket_order.id,
+            "entry_order_id": entry_order.id,
+            "take_profit_order_id": take_profit_order.id if take_profit_order else None,
+            "stop_loss_order_id": stop_loss_order.id if stop_loss_order else None,
+            "status": "PENDING"
+        }
+    
+    async def cancel_advanced_order(self, order_id: str) -> bool:
+        """
+        Cancel an advanced order (OCO or Bracket).
+        
+        Args:
+            order_id: ID of any order in the advanced order
+            
+        Returns:
+            bool: True if cancellation was successful
+            
+        Raises:
+            OrderError: If order cancellation fails
+        """
+        async with self._advanced_orders_lock:
+            # Find the advanced order
+            advanced_order_id = self._order_to_advanced.get(order_id)
+            if not advanced_order_id:
+                raise OrderError(f"No advanced order found for order ID: {order_id}")
+            
+            # Cancel OCO order
+            if advanced_order_id in self._oco_orders:
+                oco_order = self._oco_orders[advanced_order_id]
+                if not oco_order.is_active:
+                    return True  # Already cancelled/completed
+                
+                # Cancel both orders
+                success = True
+                for order in [oco_order.primary_order, oco_order.secondary_order]:
+                    try:
+                        if order and order.status in [OrderStatus.NEW, OrderStatus.PENDING]:
+                            await self.cancel_order(order.id)
+                    except Exception as e:
+                        self.logger.error(f"Failed to cancel OCO order {order.id}: {e}")
+                        success = False
+                
+                if success:
+                    oco_order.is_active = False
+                    oco_order.updated_at = datetime.utcnow()
+                
+                return success
+            
+            # Cancel Bracket order
+            elif advanced_order_id in self._bracket_orders:
+                bracket_order = self._bracket_orders[advanced_order_id]
+                if not bracket_order.is_active:
+                    return True  # Already cancelled/completed
+                
+                # Cancel all active orders in the bracket
+                success = True
+                orders = [
+                    bracket_order.entry_order,
+                    bracket_order.take_profit_order,
+                    bracket_order.stop_loss_order
+                ]
+                
+                for order in orders:
+                    try:
+                        if order and order.status in [OrderStatus.NEW, OrderStatus.PENDING]:
+                            await self.cancel_order(order.id)
+                    except Exception as e:
+                        self.logger.error(f"Failed to cancel Bracket order {order.id}: {e}")
+                        success = False
+                
+                if success:
+                    bracket_order.is_active = False
+                    bracket_order.updated_at = datetime.utcnow()
+                
+                return success
+            
+            else:
+                raise OrderError(f"Unknown advanced order ID: {advanced_order_id}")
+    
+    async def get_advanced_order_status(self, order_id: str) -> Dict[str, Any]:
+        """
+        Get the status of an advanced order.
+        
+        Args:
+            order_id: ID of any order in the advanced order
+            
+        Returns:
+            Dictionary with advanced order status
+        """
+        async with self._advanced_orders_lock:
+            # Find the advanced order
+            advanced_order_id = self._order_to_advanced.get(order_id)
+            if not advanced_order_id:
+                raise OrderError(f"No advanced order found for order ID: {order_id}")
+            
+            # Get OCO order status
+            if advanced_order_id in self._oco_orders:
+                oco_order = self._oco_orders[advanced_order_id]
+                return {
+                    "order_type": "OCO",
+                    "oco_id": oco_order.id,
+                    "primary_order_id": oco_order.primary_order.id,
+                    "primary_status": oco_order.primary_order.status.value,
+                    "secondary_order_id": oco_order.secondary_order.id,
+                    "secondary_status": oco_order.secondary_order.status.value,
+                    "is_active": oco_order.is_active,
+                    "created_at": oco_order.created_at.isoformat(),
+                    "updated_at": oco_order.updated_at.isoformat()
+                }
+            
+            # Get Bracket order status
+            elif advanced_order_id in self._bracket_orders:
+                bracket_order = self._bracket_orders[advanced_order_id]
+                return {
+                    "order_type": "BRACKET",
+                    "bracket_id": bracket_order.id,
+                    "entry_order_id": bracket_order.entry_order.id,
+                    "entry_status": bracket_order.entry_order.status.value,
+                    "take_profit_order_id": bracket_order.take_profit_order.id if bracket_order.take_profit_order else None,
+                    "take_profit_status": bracket_order.take_profit_order.status.value if bracket_order.take_profit_order else None,
+                    "stop_loss_order_id": bracket_order.stop_loss_order.id if bracket_order.stop_loss_order else None,
+                    "stop_loss_status": bracket_order.stop_loss_order.status.value if bracket_order.stop_loss_order else None,
+                    "is_active": bracket_order.is_active,
+                    "created_at": bracket_order.created_at.isoformat(),
+                    "updated_at": bracket_order.updated_at.isoformat()
+                }
+            
+            else:
+                raise OrderError(f"Unknown advanced order ID: {advanced_order_id}")

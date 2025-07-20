@@ -18,6 +18,12 @@ import uuid
 
 from .order_types import Order, OrderSide, OrderStatus, OrderType, TimeInForce
 from .advanced_orders import AdvancedOrder, BracketOrder, OCOOrder, AdvancedOrderType
+from core.utils.trade_logger import (
+    TradeEventType,
+    log_position_update,
+    log_order_fill,
+    log_risk_check
+)
 
 logger = logging.getLogger(__name__)
 
@@ -258,49 +264,52 @@ class PositionManager:
         # For advanced order tracking
         self._advanced_order_positions: Dict[str, str] = {}  # advanced_order_id -> position_id
     
-    async def open_position(
+    async def create_position(
         self,
         symbol: str,
         side: Union[OrderSide, str],
         quantity: Union[Decimal, str, float],
-        price: Union[Decimal, str, float],
+        entry_price: Union[Decimal, str, float],
+        entry_time: Optional[datetime] = None,
         position_id: Optional[str] = None,
+        account_id: Optional[str] = None,
         strategy_id: Optional[str] = None,
         **kwargs
     ) -> Position:
-        """
-        Open a new position.
+        """Create and track a new position."""
+        position = Position(
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            entry_price=entry_price,
+            entry_time=entry_time or datetime.utcnow(),
+            position_id=position_id,
+            account_id=account_id or self.account_id,
+            strategy_id=strategy_id,
+            **kwargs
+        )
         
-        Args:
-            symbol: Trading symbol (e.g., 'BTC/USDT')
-            side: 'BUY' or 'SELL'
-            quantity: Position size
-            price: Entry price
-            position_id: Optional custom position ID
-            strategy_id: Optional strategy ID
-            **kwargs: Additional position metadata
-            
-        Returns:
-            The created Position object
-        """
         async with self._position_lock:
-            position = Position(
-                symbol=symbol,
-                side=side,
-                quantity=quantity,
-                entry_price=price,
-                position_id=position_id,
-                account_id=self.account_id,
-                strategy_id=strategy_id,
-                **kwargs
-            )
-            
             self.positions[position.position_id] = position
             self._symbol_positions[symbol].add(position.position_id)
-            self._strategy_positions[strategy_id].add(position.position_id)
-            
-            return position
-    
+            if strategy_id:
+                self._strategy_positions[strategy_id].add(position.position_id)
+        
+        # Log position creation
+        log_position_update(
+            position_id=position.position_id,
+            symbol=position.symbol,
+            side=position.side.name,
+            size=float(position.quantity),
+            entry_price=float(position.entry_price),
+            unrealized_pnl=float(position.unrealized_pnl) if hasattr(position, 'unrealized_pnl') else 0.0,
+            event_type=TradeEventType.POSITION_OPENED,
+            strategy_id=position.strategy_id,
+            account_id=position.account_id
+        )
+        
+        return position
+
     async def update_position(
         self,
         position_id: str,
@@ -309,37 +318,34 @@ class PositionManager:
         mark_price: Optional[Union[Decimal, str, float]] = None,
         timestamp: Optional[datetime] = None
     ) -> Optional[Position]:
-        """
-        Update a position with an order or market data.
-        
-        Args:
-            position_id: ID of the position to update
-            order: Optional order to update the position with
-            price: Current market price (for P&L calculation)
-            mark_price: Mark price (for P&L calculation, falls back to price)
-            timestamp: Update timestamp
-            
-        Returns:
-            Updated Position if found, None otherwise
-        """
+        """Update a position with an order or market data."""
         async with self._position_lock:
-            position = self.positions.get(position_id)
-            if not position:
+            if position_id not in self.positions:
                 return None
                 
+            position = self.positions[position_id]
+            original_status = position.status
+            
+            # Update position with order if provided
             if order:
-                # Handle order updates
-                position.add_order(order)
-                
-                # Update order to position mapping
+                # Map order to position
                 self._order_to_position[order.order_id] = position_id
                 
-                # If this is a child order, update the parent position
-                if hasattr(order, 'parent_order_id') and order.parent_order_id:
-                    parent_position_id = self._order_to_position.get(order.parent_order_id)
-                    if parent_position_id and parent_position_id in self.positions:
-                        parent_position = self.positions[parent_position_id]
-                        parent_position.add_child_order(order)
+                # Update position based on order status
+                if order.status in [OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED]:
+                    position.add_order(order)
+                    
+                    # Log order fill
+                    log_order_fill(
+                        order_id=order.order_id,
+                        symbol=order.symbol,
+                        side=order.side.name,
+                        filled_quantity=float(order.filled_quantity) if hasattr(order, 'filled_quantity') else float(order.quantity),
+                        fill_price=float(order.avg_fill_price) if hasattr(order, 'avg_fill_price') else float(order.price or 0),
+                        commission=float(order.commission) if hasattr(order, 'commission') else 0.0,
+                        is_partial=order.status == OrderStatus.PARTIALLY_FILLED,
+                        remaining_quantity=float(order.remaining_quantity) if hasattr(order, 'remaining_quantity') else 0.0
+                    )
             
             # Update market price if provided
             if mark_price is not None:
@@ -347,31 +353,48 @@ class PositionManager:
             elif price is not None:
                 position.update_market_price(price)
             
+            # Log position update if status changed
+            if position.status != original_status:
+                event_type = {
+                    PositionStatus.OPEN: TradeEventType.POSITION_OPENED,
+                    PositionStatus.CLOSED: TradeEventType.POSITION_CLOSED,
+                    PositionStatus.LIQUIDATED: TradeEventType.POSITION_LIQUIDATED
+                }.get(position.status, TradeEventType.POSITION_MODIFIED)
+                
+                log_position_update(
+                    position_id=position.position_id,
+                    symbol=position.symbol,
+                    side=position.side.name,
+                    size=float(position.quantity),
+                    entry_price=float(position.entry_price),
+                    exit_price=float(position.exit_price) if position.exit_price else None,
+                    unrealized_pnl=float(position.unrealized_pnl) if hasattr(position, 'unrealized_pnl') else 0.0,
+                    realized_pnl=float(position.realized_pnl) if hasattr(position, 'realized_pnl') else 0.0,
+                    event_type=event_type,
+                    strategy_id=position.strategy_id,
+                    account_id=position.account_id,
+                    metadata={
+                        'status': position.status.name,
+                        'reason': getattr(position, 'close_reason', None)
+                    }
+                )
+            
             # Clean up if position is closed
             if position.status != PositionStatus.OPEN and position_id in self.positions:
                 self._cleanup_position(position_id)
             
             return position
-    
+
     async def close_position(
         self,
         position_id: str,
         price: Union[Decimal, str, float],
         status: PositionStatus = PositionStatus.CLOSED,
-        timestamp: Optional[datetime] = None
+        timestamp: Optional[datetime] = None,
+        reason: Optional[str] = None,
+        **kwargs
     ) -> bool:
-        """
-        Close a position.
-        
-        Args:
-            position_id: ID of the position to close
-            price: Exit price
-            status: Position status after closing (default: CLOSED)
-            timestamp: Close timestamp
-            
-        Returns:
-            True if position was closed, False otherwise
-        """
+        """Close a position with the given price and status."""
         async with self._position_lock:
             if position_id not in self.positions:
                 return False
@@ -381,31 +404,41 @@ class PositionManager:
             # Skip if already closed
             if position.status != PositionStatus.OPEN:
                 return False
-                
-            # Update position
-            position.exit_price = Decimal(price) if not isinstance(price, Decimal) else price
-            position.exit_time = timestamp or datetime.now(timezone.utc)
+            
+            # Set close price and status
+            position.exit_price = Decimal(str(price)) if not isinstance(price, Decimal) else price
+            position.exit_time = timestamp or datetime.utcnow()
             position.status = status
             
-            # Calculate final P&L
-            if position.side == OrderSide.LONG:
-                position.realized_pnl = (
-                    (position.exit_price - position.avg_entry_price) * position.original_quantity
-                )
-            else:  # SHORT
-                position.realized_pnl = (
-                    (position.avg_entry_price - position.exit_price) * position.original_quantity
-                )
+            # Calculate P&L
+            if hasattr(position, 'calculate_pnl'):
+                position.calculate_pnl()
             
-            # Apply leverage if needed
-            if position.leverage > 1:
-                position.realized_pnl *= position.leverage
+            # Log position closure
+            log_position_update(
+                position_id=position.position_id,
+                symbol=position.symbol,
+                side=position.side.name,
+                size=float(position.quantity),
+                entry_price=float(position.entry_price),
+                exit_price=float(position.exit_price),
+                unrealized_pnl=0.0,  # Should be 0 for closed positions
+                realized_pnl=float(position.realized_pnl) if hasattr(position, 'realized_pnl') else 0.0,
+                event_type=TradeEventType.POSITION_CLOSED,
+                strategy_id=position.strategy_id,
+                account_id=position.account_id,
+                metadata={
+                    'status': status.name,
+                    'reason': reason,
+                    **kwargs
+                }
+            )
             
-            # Clean up
+            # Clean up position
             self._cleanup_position(position_id)
             
             return True
-    
+
     def _cleanup_position(self, position_id: str) -> None:
         """Clean up position references."""
         if position_id not in self.positions:
@@ -425,11 +458,12 @@ class PositionManager:
             if not self._strategy_positions[position.strategy_id]:
                 del self._strategy_positions[position.strategy_id]
         
-        # Remove from advanced order index if present
-        if position.advanced_order_id and position.advanced_order_id in self._advanced_order_positions:
-            del self._advanced_order_positions[position.advanced_order_id]
+        # Remove from order mapping
+        for order_id, pos_id in list(self._order_to_position.items()):
+            if pos_id == position_id:
+                del self._order_to_position[order_id]
         
-        # Remove from positions dictionary
+        # Remove from positions
         del self.positions[position_id]
     
     async def get_position(self, position_id: str) -> Optional[Position]:

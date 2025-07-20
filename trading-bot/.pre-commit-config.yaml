@@ -1,0 +1,86 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+    -   id: trailing-whitespace
+    -   id: end-of-file-fixer
+    -   id: check-yaml
+    -   id: check-added-large-files
+    -   id: debug-statements
+    -   id: requirements-txt-fixer
+
+-   repo: https://github.com/psf/black
+    rev: 24.3.0
+    hooks:
+    -   id: black
+        language_version: python3.11
+
+-   repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+    -   id: isort
+        name: isort (python)
+        args: [--profile=black]
+
+-   repo: https://github.com/pycqa/flake8
+    rev: 7.0.0
+    hooks:
+    -   id: flake8
+        additional_dependencies: [
+            'flake8-bugbear>=24.1',
+            'flake8-docstrings>=1.7',
+            'flake8-import-order>=0.18',
+            'flake8-typing-imports>=1.14',
+            'flake8-builtins>=2.1',
+            'flake8-comprehensions>=3.12',
+            'flake8-print>=5.0',
+            'flake8-rst-docstrings>=0.3',
+            'flake8-todo>=0.7'
+        ]
+
+-   repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
+    hooks:
+    -   id: mypy
+        additional_dependencies: [types-python-dateutil, types-pytz, types-PyYAML]
+        args: [--ignore-missing-imports, --disallow-untyped-defs, --check-untyped-defs]
+        exclude: '^tests/|/migrations/|/docs/|/examples/|/venv/|/build/|/dist/|/_build/|/setup.py$'
+
+-   repo: https://github.com/abravalheri/validate-pyproject
+    rev: v0.16
+    hooks:
+    -   id: validate-pyproject
+
+# Security checks
+-   repo: https://github.com/PyCQA/bandit
+    rev: 1.7.7
+    hooks:
+    -   id: bandit
+        args: [--recursive, --configfile=pyproject.toml]
+
+# Format notebooks
+-   repo: https://github.com/kynan/nbstripout
+    rev: 0.6.1
+    hooks:
+    -   id: nbstripout
+        args: [--keep-output, --keep-count, --keep-id, '--extra-keys=metadata.kernelspec']
+
+# Sort requirements files
+-   repo: https://github.com/lyz-code/requirements-tools
+    rev: 1.2.7
+    hooks:
+    -   id: requirements-tools-sort
+        files: requirements.*
+    -   id: requirements-tools-fix-requirements-txt
+        files: requirements.*
+        args: [--max-line-length=100]
+
+# Check for secrets
+-   repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+    -   id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: '^tests/|/migrations/|/docs/|/examples/|/venv/|/build/|/dist/|/_build/|/setup.py$'

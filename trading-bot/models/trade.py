@@ -3,7 +3,7 @@ Trade-related data models.
 """
 from datetime import datetime
 from enum import Enum, auto
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from decimal import Decimal
 from .base import BaseModel
 from .order import OrderSide, OrderType

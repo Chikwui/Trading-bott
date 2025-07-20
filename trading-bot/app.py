@@ -37,14 +37,34 @@ class TradingBot:
         """Initialize all components."""
         logger.info("Initializing components...")
         
-        # Initialize market data handler
-        self.market_data_handler = MarketDataHandler()
+        # Initialize market data handler with instruments from config
+        from core.market.instrument import InstrumentMetadata
         
-        # Initialize execution handler
+        # Create instrument metadata from ASSET_CLASSES config
+        instruments = []
+        for asset_class, config in settings.ASSET_CLASSES.items():
+            for symbol in config['symbols']:
+                instruments.append(InstrumentMetadata(
+                    symbol=symbol,
+                    asset_class=asset_class,
+                    exchange='MT5',  # Default exchange
+                    min_tick_size=0.00001,  # Default value, adjust as needed
+                    min_order_size=0.01,    # Default value, adjust as needed
+                    max_leverage=config.get('leverage', 10),
+                    trading_hours=config.get('trading_hours', '24/5')
+                ))
+        
+        self.market_data_handler = MarketDataHandler(instruments=instruments)
+        
+        # Initialize execution handler with MT5 credentials
         self.execution_handler = ExecutionHandler(
-            api_key=settings.BROKER_API_KEY,
-            api_secret=settings.BROKER_API_SECRET,
-            sandbox=settings.TRADING_MODE == 'paper'
+            api_key=str(settings.MT5_LOGIN),  # Using MT5 login as API key
+            api_secret=settings.MT5_PASSWORD,  # Using MT5 password as API secret
+            sandbox=settings.TRADING_MODE == 'paper',
+            server=settings.MT5_SERVER,
+            path=settings.MT5_PATH,
+            timeout=settings.MT5_TIMEOUT,
+            portable=settings.MT5_PORTABLE
         )
         
         # Initialize portfolio

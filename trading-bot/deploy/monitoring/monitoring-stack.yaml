@@ -1,0 +1,416 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    name: monitoring
+---
+# Prometheus Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app: prometheus
+    component: server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+      component: server
+  template:
+    metadata:
+      labels:
+        app: prometheus
+        component: server
+    spec:
+      serviceAccountName: prometheus
+      containers:
+      - name: prometheus
+        image: prom/prometheus:v2.44.0
+        args:
+          - '--config.file=/etc/prometheus/prometheus.yml'
+          - '--storage.tsdb.path=/prometheus'
+          - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+          - '--web.console.templates=/usr/share/prometheus/consoles'
+          - '--web.enable-lifecycle'
+        ports:
+        - containerPort: 9090
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /etc/prometheus/prometheus.yml
+          name: config
+          subPath: prometheus.yml
+        - mountPath: /prometheus
+          name: data
+        resources:
+          limits:
+            cpu: 500m
+            memory: 2Gi
+          requests:
+            cpu: 100m
+            memory: 512Mi
+      volumes:
+      - name: config
+        configMap:
+          name: prometheus-config
+      - name: data
+        emptyDir: {}
+---
+# Prometheus ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+    
+    scrape_configs:
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+      
+      - job_name: 'order-service'
+        scrape_interval: 5s
+        static_configs:
+          - targets: ['order-service:9100']
+      
+      - job_name: 'redis-exporter'
+        static_configs:
+          - targets: ['redis-exporter:9121']
+---
+# Prometheus Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app: prometheus
+    component: server
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9090
+    targetPort: 9090
+    protocol: TCP
+    name: http
+  selector:
+    app: prometheus
+    component: server
+---
+# Prometheus ServiceAccount and ClusterRole
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+rules:
+- apiGroups: [""]
+  resources:
+  - nodes
+  - nodes/proxy
+  - services
+  - endpoints
+  - pods
+  verbs: ["get", "list", "watch"]
+- apiGroups:
+  - extensions
+  resources:
+  - ingresses
+  verbs: ["get", "list", "watch"]
+- nonResourceURLs: ["/metrics"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+- kind: ServiceAccount
+  name: prometheus
+  namespace: monitoring
+---
+# Grafana Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: main
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+      component: main
+  template:
+    metadata:
+      labels:
+        app: grafana
+        component: main
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana:10.0.0
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: GF_AUTH_ANONYMOUS_ENABLED
+          value: "true"
+        - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+          value: "Admin"
+        - name: GF_AUTH_DISABLE_LOGIN_FORM
+          value: "true"
+        volumeMounts:
+        - name: config
+          mountPath: /etc/grafana/grafana.ini
+          subPath: grafana.ini
+        - name: dashboards
+          mountPath: /etc/grafana/provisioning/dashboards
+        - name: dashboard-json
+          mountPath: /var/lib/grafana/dashboards
+        resources:
+          limits:
+            cpu: 500m
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+      volumes:
+      - name: config
+        configMap:
+          name: grafana-config
+      - name: dashboards
+        configMap:
+          name: grafana-dashboards
+      - name: dashboard-json
+        configMap:
+          name: grafana-dashboard-json
+---
+# Grafana ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-config
+  namespace: monitoring
+data:
+  grafana.ini: |
+    [server]
+    root_url = %(protocol)s://%(domain)s/grafana/
+    serve_from_sub_path = true
+    
+    [auth.anonymous]
+    enabled = true
+    org_role = Admin
+    
+    [dashboards]
+    default_home_dashboard_path = /var/lib/grafana/dashboards/order-management.json
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: monitoring
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+    - name: 'default'
+      orgId: 1
+      folder: ''
+      type: file
+      disableDeletion: false
+      editable: true
+      options:
+        path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-json
+  namespace: monitoring
+data:
+  order-management.json: |
+    {"annotations":{"list":[{"builtIn":1,"datasource":"-- Grafana --","enable":true,"hide":true,"iconColor":"rgba(0, 211, 255, 1)","name":"Annotations & Alerts","target":{"limit":100,"matchAny":false,"tags":[],"type":"dashboard"},"type":"dashboard"}]},"editable":true,"fiscalYearStartMonth":0,"graphTooltip":0,"id":null,"links":[],"liveNow":false,"panels":[{"datasource":{"type":"prometheus","uid":"${DS_PROMETHEUS}"},"fieldConfig":{"defaults":{"color":{"mode":"palette-classic"},"custom":{"axisCenteredZero":false,"axisColorMode":"text","axisLabel":"","axisPlacement":"auto","barAlignment":0,"drawStyle":"line","fillOpacity":10,"gradientMode":"none","hideFrom":{"legend":false,"tooltip":false,"viz":false},"lineInterpolation":"linear","lineWidth":1,"pointSize":5,"scaleDistribution":{"type":"linear"},"showPoints":"auto","spanNulls":false,"stacking":{"group":"A","mode":"none"},"thresholdsStyle":{"mode":"off"}},"mappings":[],"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"red","value":80}]}},"overrides":[]},"gridPos":{"h":8,"w":12,"x":0,"y":0},"id":2,"options":{"legend":{"calcs":["mean","lastNotNull","max"],"displayMode":"table","placement":"bottom","showLegend":true},"tooltip":{"mode":"multi","sort":"none"}},"targets":[{"datasource":{"type":"prometheus","uid":"${DS_PROMETHEUS}"},"editorMode":"code","expr":"rate(oms_order_processing_seconds_sum[1m])/rate(oms_order_processing_seconds_count[1m])","legendFormat":"{{operation}} (avg)","range":true,"refId":"A"},{"datasource":{"type":"prometheus","uid":"${DS_PROMETHEUS}"},"editorMode":"code","expr":"histogram_quantile(0.99, sum(rate(oms_order_processing_seconds_bucket[1m])) by (le, operation))","legendFormat":"{{operation}} (p99)","range":true,"refId":"B"}],"title":"Order Processing Latency","type":"timeseries"},{"datasource":{"type":"prometheus","uid":"${DS_PROMETHEUS}"},"fieldConfig":{"defaults":{"color":{"mode":"palette-classic"},"custom":{"axisCenteredZero":false,"axisColorMode":"text","axisLabel":"","axisPlacement":"auto","barAlignment":0,"drawStyle":"line","fillOpacity":20,"gradientMode":"none","hideFrom":{"legend":false,"tooltip":false,"viz":false},"lineInterpolation":"linear","lineWidth":2,"pointSize":5,"scaleDistribution":{"type":"linear"},"showPoints":"auto","spanNulls":false,"stacking":{"group":"A","mode":"none"},"thresholdsStyle":{"mode":"off"}},"mappings":[],"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"red","value":80}]}},"overrides":[]},"gridPos":{"h":8,"w":12,"x":12,"y":0},"id":3,"options":{"legend":{"calcs":["mean","lastNotNull"],"displayMode":"table","placement":"bottom","showLegend":true},"tooltip":{"mode":"multi","sort":"none"}},"targets":[{"datasource":{"type":"prometheus","uid":"${DS_PROMETHEUS}"},"editorMode":"code","expr":"rate(oms_order_requests_total[1m])","legendFormat":"{{operation}} ({{status}})","range":true,"refId":"A"}],"title":"Order Request Rate","type":"timeseries"},{"datasource":{"type":"prometheus","uid":"${DS_PROMETHEUS}"},"fieldConfig":{"defaults":{"color":{"mode":"palette-classic"},"custom":{"axisCenteredZero":false,"axisColorMode":"text","axisLabel":"","axisPlacement":"auto","barAlignment":0,"drawStyle":"line","fillOpacity":20,"gradientMode":"none","hideFrom":{"legend":false,"tooltip":false,"viz":false},"lineInterpolation":"linear","lineWidth":2,"pointSize":5,"scaleDistribution":{"type":"linear"},"showPoints":"auto","spanNulls":false,"stacking":{"group":"A","mode":"none"},"thresholdsStyle":{"mode":"off"}},"mappings":[],"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"red","value":80}]}},"overrides":[]},"gridPos":{"h":8,"w":12,"x":0,"y":8},"id":4,"options":{"legend":{"calcs":["mean","lastNotNull"],"displayMode":"table","placement":"bottom","showLegend":true},"tooltip":{"mode":"multi","sort":"none"}},"targets":[{"datasource":{"type":"prometheus","uid":"${DS_PROMETHEUS}"},"editorMode":"code","expr":"rate(oms_lock_contention_total[1m])","legendFormat":"{{resource}}","range":true,"refId":"A"}],"title":"Lock Contention Rate","type":"timeseries"},{"datasource":{"type":"prometheus","uid":"${DS_PROMETHEUS}"},"fieldConfig":{"defaults":{"color":{"mode":"thresholds"},"mappings":[{"options":{"0":{"color":"green","index":0,"text":"Closed"},"1":{"color":"red","index":1,"text":"Open"},"2":{"color":"yellow","index":2,"text":"Half-Open"}},"type":"value"}],"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"red","value":1},{"color":"yellow","value":2}]},"unit":"short"},"overrides":[]},"gridPos":{"h":8,"w":12,"x":12,"y":8},"id":5,"options":{"colorMode":"value","graphMode":"area","justifyMode":"auto","orientation":"auto","reduceOptions":{"calcs":["lastNotNull"],"fields":"","values":false},"textMode":"auto"},"pluginVersion":"9.5.2","targets":[{"datasource":{"type":"prometheus","uid":"${DS_PROMETHEUS}"},"editorMode":"code","expr":"oms_circuit_breaker_state","legendFormat":"{{circuit}}","range":true,"refId":"A"}],"title":"Circuit Breaker States","type":"stat"},{"datasource":{"type":"prometheus","uid":"${DS_PROMETHEUS}"},"fieldConfig":{"defaults":{"color":{"mode":"palette-classic"},"custom":{"axisCenteredZero":false,"axisColorMode":"text","axisLabel":"","axisPlacement":"auto","barAlignment":0,"drawStyle":"line","fillOpacity":10,"gradientMode":"none","hideFrom":{"legend":false,"tooltip":false,"viz":false},"lineInterpolation":"linear","lineWidth":1,"pointSize":5,"scaleDistribution":{"type":"linear"},"showPoints":"auto","spanNulls":false,"stacking":{"group":"A","mode":"none"},"thresholdsStyle":{"mode":"off"}},"mappings":[],"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"red","value":80}]}},"overrides":[]},"gridPos":{"h":8,"w":24,"x":0,"y":16},"id":6,"options":{"legend":{"calcs":["mean","lastNotNull"],"displayMode":"table","placement":"bottom","showLegend":true},"tooltip":{"mode":"multi","sort":"none"}},"targets":[{"datasource":{"type":"prometheus","uid":"${DS_PROMETHEUS}"},"editorMode":"code","expr":"rate(oms_errors_total[1m])","legendFormat":"{{type}} ({{operation}})","range":true,"refId":"A"}],"title":"Error Rate","type":"timeseries"},{"datasource":{"type":"prometheus","uid":"${DS_PROMETHEUS}"},"fieldConfig":{"defaults":{"color":{"mode":"palette-classic"},"custom":{"axisCenteredZero":false,"axisColorMode":"text","axisLabel":"","axisPlacement":"auto","barAlignment":0,"drawStyle":"line","fillOpacity":10,"gradientMode":"none","hideFrom":{"legend":false,"tooltip":false,"viz":false},"lineInterpolation":"linear","lineWidth":1,"pointSize":5,"scaleDistribution":{"type":"linear"},"showPoints":"auto","spanNulls":false,"stacking":{"group":"A","mode":"none"},"thresholdsStyle":{"mode":"off"}},"mappings":[],"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"red","value":80}]}},"overrides":[]},"gridPos":{"h":8,"w":24,"x":0,"y":24},"id":7,"options":{"legend":{"calcs":["mean","lastNotNull"],"displayMode":"table","placement":"bottom","showLegend":true},"tooltip":{"mode":"multi","sort":"none"}},"targets":[{"datasource":{"type":"prometheus","uid":"${DS_PROMETHEUS}"},"editorMode":"code","expr":"oms_active_orders","legendFormat":"{{status}}","range":true,"refId":"A"}],"title":"Active Orders by Status","type":"timeseries"}],"refresh":"5s","schemaVersion":37,"style":"dark","tags":["trading","order-management"],"templating":{"list":[{"current":{"selected":false,"text":"Prometheus","value":"Prometheus"},"hide":0,"includeAll":false,"label":"Data Source","multi":false,"name":"DS_PROMETHEUS","options":[],"query":"prometheus","refresh":1,"regex":"","skipUrlSync":false,"type":"datasource"}]},"time":{"from":"now-15m","to":"now"},"timepicker":{"refresh_intervals":["5s","10s","30s","1m","5m","15m","30m","1h","2h","1d"]},"timezone":"browser","title":"Order Management Service Dashboard","version":1,"weekStart":""}
+---
+# Grafana Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: main
+spec:
+  type: ClusterIP
+  ports:
+  - port: 3000
+    targetPort: 3000
+    protocol: TCP
+    name: http
+  selector:
+    app: grafana
+    component: main
+---
+# Redis Exporter
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-exporter
+  namespace: monitoring
+  labels:
+    app: redis-exporter
+    component: metrics
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-exporter
+      component: metrics
+  template:
+    metadata:
+      labels:
+        app: redis-exporter
+        component: metrics
+    spec:
+      containers:
+      - name: redis-exporter
+        image: oliver006/redis_exporter:v1.45.0
+        args:
+        - --redis.addr=redis.trading:6379
+        - --redis.password=${REDIS_PASSWORD}
+        ports:
+        - containerPort: 9121
+          name: http
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+---
+# Redis Exporter Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-exporter
+  namespace: monitoring
+  labels:
+    app: redis-exporter
+    component: metrics
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9121
+    targetPort: 9121
+    protocol: TCP
+    name: http
+  selector:
+    app: redis-exporter
+    component: metrics
+---
+# Node Exporter DaemonSet
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: monitoring
+  labels:
+    app: node-exporter
+    component: metrics
+spec:
+  selector:
+    matchLabels:
+      app: node-exporter
+      component: metrics
+  template:
+    metadata:
+      labels:
+        app: node-exporter
+        component: metrics
+    spec:
+      containers:
+      - name: node-exporter
+        image: prom/node-exporter:v1.5.0
+        args:
+        - --path.rootfs=/host
+        - --path.procfs=/host/proc
+        - --path.sysfs=/host/sys
+        - --no-collector.wifi
+        - --no-collector.hwmon
+        - --collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)
+        ports:
+        - containerPort: 9100
+          name: http
+        resources:
+          limits:
+            cpu: 200m
+            memory: 50Mi
+          requests:
+            cpu: 100m
+            memory: 30Mi
+        volumeMounts:
+        - name: proc
+          mountPath: /host/proc
+        - name: sys
+          mountPath: /host/sys
+        - name: root
+          mountPath: /rootfs
+      volumes:
+      - name: proc
+        hostPath:
+          path: /proc
+      - name: sys
+        hostPath:
+          path: /sys
+      - name: root
+        hostPath:
+          path: /
+      hostNetwork: true
+      hostPID: true
+      tolerations:
+      - effect: NoSchedule
+        operator: Exists
+---
+# Node Exporter Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-exporter
+  namespace: monitoring
+  labels:
+    app: node-exporter
+    component: metrics
+  annotations:
+    prometheus.io/scrape: 'true'
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+  - name: http
+    port: 9100
+    protocol: TCP
+  selector:
+    app: node-exporter
+    component: metrics

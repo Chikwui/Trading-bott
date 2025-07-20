@@ -57,13 +57,22 @@ REDIS_CONFIG = {
     'retry_on_timeout': True
 }
 
-# MT5 configuration
+# MT5 configuration - Module level attributes for direct access
+MT5_LOGIN = int(os.getenv('MT5_LOGIN', 0))
+MT5_PASSWORD = os.getenv('MT5_PASSWORD', '')
+MT5_SERVER = os.getenv('MT5_SERVER', '')
+MT5_PATH = os.getenv('MT5_PATH', '')
+MT5_TIMEOUT = int(os.getenv('MT5_TIMEOUT', 60000))  # 60 seconds
+MT5_PORTABLE = os.getenv('MT5_PORTABLE', 'False').lower() in ('true', '1', 't')
+
+# Keep the config dictionary for backward compatibility
 MT5_CONFIG = {
-    'login': int(os.getenv('MT5_LOGIN', 0)),
-    'password': os.getenv('MT5_PASSWORD', ''),
-    'server': os.getenv('MT5_SERVER', ''),
-    'timeout': 60000,  # 60 seconds
-    'portable': False
+    'login': MT5_LOGIN,
+    'password': MT5_PASSWORD,
+    'server': MT5_SERVER,
+    'path': MT5_PATH,
+    'timeout': MT5_TIMEOUT,
+    'portable': MT5_PORTABLE
 }
 
 # Risk management configuration
@@ -133,6 +142,17 @@ DATABASE_CONFIG = {
     'engine': 'sqlite',
     'database': os.path.join(BASE_DIR, 'data', 'trading_bot.db'),
     'echo': False,
+}
+
+# Trading mode configuration
+TRADING_CONFIG = {
+    'auto_trade': os.getenv('AUTO_TRADE', 'true').lower() == 'true',  # Enable automatic trading
+    'simulation_mode': os.getenv('SIMULATION_MODE', 'true').lower() == 'true',  # Run in simulation mode
+    'paper_trading': os.getenv('PAPER_TRADING', 'true').lower() == 'true',  # Use paper trading account
+    'require_confirmation': os.getenv('REQUIRE_CONFIRMATION', 'false').lower() == 'true',  # Manual confirmation
+    'max_open_trades': int(os.getenv('MAX_OPEN_TRADES', 10)),  # Maximum number of open trades
+    'default_slippage': float(os.getenv('DEFAULT_SLIPPAGE', 0.0005)),  # Default slippage (0.05%)
+    'default_commission': float(os.getenv('DEFAULT_COMMISSION', 0.001)),  # Default commission (0.1%)
 }
 
 # Paths

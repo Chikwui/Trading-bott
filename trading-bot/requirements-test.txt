@@ -1,42 +1,89 @@
-# Testing
-pytest>=7.0.0
-pytest-cov>=3.0.0
-pytest-benchmark>=3.4.1
-pytest-xdist>=2.5.0
-pytest-mock>=3.10.0
-pytest-timeout>=2.1.0
-pytest-randomly>=3.10.3
-pytest-asyncio>=0.18.3
-pytest-env>=0.6.2
-pytest-html>=3.1.1
-pytest-metadata>=1.11.0
-pytest-sugar>=0.9.5
-pytest-instafail>=0.4.2
+# ====================
+# Testing Dependencies
+# ====================
 
-# Performance testing
-memory-profiler>=0.60.0
-psutil>=5.9.0
-py-spy>=0.3.14
+# Test Framework
+pytest>=8.0.0  # Latest major version with many improvements
+pytest-cov>=4.1.0
+pytest-xdist>=3.5.0  # Parallel test execution with better stability
+pytest-asyncio>=0.23.0  # Improved async test support
+pytest-timeout>=2.2.0  # Test timeouts with better handling
+pytest-randomly>=3.15.0  # Better random test order
+pytest-mock>=3.12.0  # Enhanced mocking capabilities
+pytest-env>=1.1.1
+pytest-html>=4.1.0  # Improved HTML reports
+pytest-sugar>=1.0.0  # Better test output with progress bars
+pytest-instafail>=0.5.0  # Show failures immediately with better formatting
+pytest-benchmark>=4.0.0  # Performance benchmarking with more metrics
+pytest-freezer>=0.4.6
+pytest-mock-resources<=2.12.2  # Latest available version
+pytest-docker>=2.0.0  # Improved Docker fixtures
+pytest-socket>=0.6.0
+pytest-httpserver>=1.0.8
+pytest-aiohttp>=1.0.0,<2.0.0  # Using latest 1.x version for compatibility
+pytest-test-groups>=1.0.3
+pytest-rerunfailures>=12.0  # Better flaky test handling
+pytest-order>=1.3.0,<1.4.0  # Latest compatible version for test ordering
 
-# Code quality
-black>=22.3.0
-isort>=5.10.1
-mypy>=0.961
-flake8>=4.0.1
-pylint>=2.13.9
+# Test Doubles
+pytest-mock>=3.12.0
+responses>=0.24.1  # Enhanced HTTP request mocking
+freezegun==1.2.2  # Time freezing
+aioresponses==0.7.4  # Async HTTP mocking
+
+# Test Data Generation
+factory-boy==3.2.1
+faker==18.13.0
+model-bakery==1.10.1
+
+# Performance Testing
+locust>=2.20.0  # Latest load testing framework
+pytest-benchmark>=4.0.0  # Performance benchmarking testing
+memory-profiler==0.61.0
+psutil==5.9.5
+py-spy==0.3.14
+pytest-benchmark==4.0.0
+
+# Security Testing
+bandit>=1.7.7  # Latest security linter
+safety>=2.3.5  # Dependency vulnerability checker
+
+# Code Coverage
+coverage>=7.3.2
+codecov==2.1.13
+coveralls==3.3.1
+
+# Type Checking
+mypy>=1.6.1  # Improved type checking
+types-python-dateutil==2.8.19.13
+types-pytz==2023.3.0.0
+types-PyYAML==6.0.12.11
+typing-extensions==4.7.1
+
+# Code Quality & Coverage
+pylint>=3.0.3  # Latest with better type checking
+black>=23.11.0  # Latest code formatter
+isort>=5.13.0  # Better import sorting
+flake8>=6.1.0
+mypy-extensions>=1.0.0
+pre-commit>=3.6.0  # Latest pre-commit hooks
+flake8-docstrings==1.7.0
+flake8-import-order==0.18.2
+flake8-typing-imports==1.14.0
+flake8-builtins==2.1.0
+flake8-comprehensions==3.12.0
+flake8-print==5.0.0
+mypy-extensions==1.0.0
 
 # Documentation
-pydocstyle>=6.1.1
+sphinx>=7.2.0  # Latest documentation generator
+sphinx-rtd-theme>=1.3.0  # Updated theme
+sphinx-autodoc-typehints>=2.0.0  # Better type hints in docs
+myst-parser>=2.0.0  # Markdown support in Sphinx
 
-# Test data generation
-faker>=13.3.4
+# Visualization for Tests
+matplotlib==3.7.2
+seaborn==0.12.2
+plotly==5.15.0
 
-# For stress testing
-locust>=2.9.1
-
-# For memory profiling
-pympler>=1.0.1
-
-# For visualization (optional)
-matplotlib>=3.5.2
-seaborn>=0.11.2
+# Note: Base dependencies are in requirements.txt

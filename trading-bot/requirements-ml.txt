@@ -1,44 +1,72 @@
-# Core dependencies
-numpy>=1.21.0
-pandas>=1.3.0
-pyarrow>=6.0.0  # Required for fast parquet support
-python-dateutil>=2.8.2
-pytz>=2021.3
+# ====================
+# Machine Learning Dependencies
+# ====================
 
-# Machine Learning
-scikit-learn>=1.0.0
-xgboost>=1.5.0
-lightgbm>=3.3.0
-optuna>=3.0.0  # For hyperparameter optimization
+# Core Data Processing
+# Note: numpy, pandas, python-dateutil, and pytz are in requirements.txt
+# This ensures we use the same versions across the project
+
+# Traditional Machine Learning
+# Using 1.2.2 as it has pre-built wheels for Windows
+scikit-learn==1.2.2  # Pinned for Windows compatibility
+xgboost>=2.0.0,<3.0.0  # Major version range for compatibility
+lightgbm>=4.1.0,<5.0.0  # Latest stable with better GPU support
+catboost>=1.2.2,<2.0.0  # Latest stable with bug fixes
+imbalanced-learn>=0.11.0,<1.0.0  # Latest stable with new sampling methods
 
 # Deep Learning
-tensorflow>=2.9.0
-tensorflow-probability>=0.17.0  # For probabilistic layers
+tensorflow>=2.15.0,<3.0.0  # Latest stable with performance improvements
+tensorflow-probability>=0.22.0,<1.0.0  # Latest stable with new distributions
+keras-tuner>=1.4.0,<2.0.0  # Latest stable with better hyperparameter tuning
 
-# Data Processing
-ta>=0.10.0  # Technical analysis library
-pydantic>=1.10.0  # For data validation
-pyyaml>=6.0  # For configuration files
-joblib>=1.1.0  # For model persistence
+# Time Series Forecasting
+statsmodels>=0.14.1,<1.0.0  # Latest stable with bug fixes
+prophet>=1.1.5,<2.0.0  # Latest stable with performance improvements
+pyts<=0.13.0  # Latest available version
 
-# MetaTrader 5
-MetaTrader5>=5.0.35
+# Feature Engineering & Technical Analysis
+ta>=0.10.2,<1.0.0  # Technical analysis library with latest indicators
+feature-engine>=1.6.2,<2.0.0
+category-encoders>=2.6.1,<3.0.0
 
-# Logging and Monitoring
-matplotlib>=3.5.0
-seaborn>=0.11.2
-tqdm>=4.62.0  # For progress bars
+# Hyperparameter Optimization
+optuna>=3.4.0  # Latest stable with better optimization algorithms
+hyperopt>=0.2.7,<0.3.0  # Using latest 0.2.x version for compatibility
+ray[tune]>=2.30.0  # Using latest stable version
 
-# Development
-typing-extensions>=4.0.0  # For type hints
-black>=22.0.0  # Code formatting
-flake8>=4.0.0  # Linting
-pytest>=7.0.0  # Testing
+# Explainability & Interpretability
+shap>=0.42.1,<1.0.0
+lime>=0.2.0.1,<1.0.0
+alibi>=0.9.2,<1.0.0
 
-# Optional: For GPU support
-# tensorflow-gpu>=2.9.0  # Uncomment if you have a compatible NVIDIA GPU
-# cupy-cuda11x>=10.0.0  # For GPU-accelerated computations (replace x with your CUDA version)
+# Time Series Analysis
+tslearn>=0.6.2,<1.0.0
+pyflux>=0.4.15,<1.0.0
+arch>=6.2.0,<7.0.0  # For volatility modeling
 
-# For documentation
-sphinx>=4.0.0
-sphinx-rtd-theme>=1.0.0
+# Reinforcement Learning
+stable-baselines3>=2.0.0,<3.0.0
+gymnasium>=0.28.1,<1.0.0
+
+# NLP for Sentiment Analysis
+transformers>=4.31.0,<5.0.0
+torch>=2.0.1,<3.0.0
+sentence-transformers>=2.2.2,<3.0.0
+
+# Data Visualization
+matplotlib>=3.8.0,<4.0.0  # Latest stable with better performance
+seaborn>=0.13.0,<1.0.0  # Latest stable with new plot types
+plotly>=5.18.0,<6.0.0  # Latest stable with new interactive features
+bokeh>=3.1.1,<4.0.0
+
+# Model Deployment
+mlflow>=2.4.2,<3.0.0
+bentoml>=1.0.20,<2.0.0
+onnxruntime>=1.15.1,<2.0.0
+
+# GPU Support (uncomment if needed)
+# cupy-cuda11x==12.0.0  # Replace x with your CUDA version
+# nvidia-cudnn-cu11==8.6.0.163  # For GPU acceleration
+# tensorrt==8.6.0  # For TensorRT optimization
+
+# Note: Base dependencies are in requirements.txt

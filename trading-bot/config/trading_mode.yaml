@@ -1,0 +1,6 @@
+daily_loss_limit_pct: 5.0
+enable_shorting: true
+max_drawdown_pct: 10.0
+max_leverage: 1.0
+mode: paper
+risk_multiplier: 1.0

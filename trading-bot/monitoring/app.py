@@ -17,64 +17,250 @@ from fastapi import FastAPI, Request, Depends, HTTPException, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse, Response
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.security import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-import pandas as pd
-import plotly.graph_objects as go
-from dash import Dash, dcc, html, Input, Output, State, callback_context
-import dash_bootstrap_components as dbc
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+import uvicorn
+import logging
+import sys
+import os
+import time
+from pathlib import Path
+from typing import Optional, Dict, Any, List
+from datetime import datetime, timedelta
 
-from .config import config
-from .metrics import metrics, CIRCUIT_BREAKER_STATE, EVENT_PROCESSED_TOTAL, EVENT_QUEUE_SIZE
+# Add parent directory to path to allow imports
+sys.path.append(str(Path(__file__).parent.parent))
+
+from monitoring.config import config, security_config
+from monitoring.metrics import metrics
+from monitoring.security import limiter, api_key_required, get_api_key, verify_api_key
+from monitoring.trading_metrics import trading_metrics, TradeDirection
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler('monitoring.log')
+    ]
+)
 logger = logging.getLogger(__name__)
 
-# Create FastAPI app
+# Initialize FastAPI app
 app = FastAPI(
     title=config.DASHBOARD_TITLE,
-    description="Real-time monitoring dashboard for the trading system",
+    description="Trading System Monitoring Dashboard",
     version="0.1.0",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
+    docs_url="/docs" if config.DEBUG else None,
+    redoc_url="/redoc" if config.DEBUG else None,
+    openapi_url="/openapi.json" if config.DEBUG else None
 )
 
-# Add CORS middleware
+# Security middleware
+if security_config.ENABLE_AUTH:
+    from monitoring.security import setup_security
+    setup_security(app)
+
+# Add other middleware
+app.add_middleware(GZipMiddleware, minimum_size=1000)  # Compress responses > 1KB
+
+# Security headers middleware is added in security.setup_security()
+
+# Configure CORS with security settings
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[str(origin) for origin in security_config.BACKEND_CORS_ORIGINS],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID", "X-Process-Time"],
 )
 
-# Mount static files
-app.mount("/static", StaticFiles(directory=config.STATIC_DIR), name="static")
+# Trusted hosts middleware
+if not config.DEBUG:
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=["*"],  # In production, replace with your domain
+    )
+    
+    # Force HTTPS in production
+    app.add_middleware(HTTPSRedirectMiddleware)
 
-# Initialize templates
+# Mount static files with cache control
+def set_cache_control_header(request, response):
+    """Set cache control headers for static files."""
+    if request.url.path.startswith("/static"):
+        response.headers["Cache-Control"] = "public, max-age=31536000"  # 1 year
+    return response
+
+app.mount(
+    "/static", 
+    StaticFiles(directory=config.STATIC_DIR), 
+    name="static"
+)
+app.middleware("http")(set_cache_control_header)
+
+# Templates
 templates = Jinja2Templates(directory=config.TEMPLATES_DIR)
 
-# Security
-security = HTTPBasic()
+# Add request timing middleware
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    response.headers["X-Process-Time"] = str(process_time)
+    metrics.record_event("request_processed", {"path": request.url.path, "method": request.method})
+    return response
 
-def authenticate(credentials: HTTPBasicCredentials = Depends(security)):
-    """Basic authentication for the dashboard."""
-    if not config.AUTH_ENABLED:
-        return True
-        
-    correct_username = config.AUTH_USERNAME
-    correct_password = config.AUTH_PASSWORD
+# Routes
+@app.get("/", response_class=HTMLResponse)
+@limiter.limit("10/minute")
+async def dashboard(
+    request: Request,
+    api_key: str = Security(api_key_required)
+):
+    """Render the main dashboard."""
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {
+            "request": request,
+            "title": config.DASHBOARD_TITLE,
+            "refresh_interval": config.REFRESH_INTERVAL,
+            "auth_enabled": security_config.ENABLE_AUTH
+        }
+    )
+
+@app.get("/metrics")
+@limiter.limit("10/minute")
+async def get_metrics(
+    request: Request,
+    api_key: str = Security(api_key_required)
+):
+    """Expose Prometheus metrics with authentication."""
+    return metrics.get_metrics_response()
+
+@app.get("/api/health")
+async def health_check():
+    """Health check endpoint with basic system status."""
+    from psutil import cpu_percent, virtual_memory
     
-    if (credentials.username != correct_username or 
-            credentials.password != correct_password):
+    return {
+        "status": "ok",
+        "version": "0.1.0",
+        "timestamp": datetime.utcnow().isoformat(),
+        "system": {
+            "cpu_percent": cpu_percent(),
+            "memory_percent": virtual_memory().percent,
+            "uptime_seconds": metrics.get_metric("system_uptime_seconds").collect()[0].samples[0].value
+        },
+        "trading": {
+            "active_trades": len(trading_metrics.open_trades),
+            "total_trades": len(trading_metrics.trades),
+            "metrics_available": True
+        }
+    }
+
+# Trading metrics endpoints
+@app.get("/api/trading/metrics/summary")
+@limiter.limit("30/minute")
+async def get_trading_metrics_summary(
+    request: Request,
+    api_key: str = Security(api_key_required)
+):
+    """Get summary of trading metrics."""
+    try:
+        return {
+            "status": "success",
+            "data": trading_metrics.get_summary_metrics()
+        }
+    except Exception as e:
+        logger.error(f"Error getting trading metrics: {str(e)}", exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Basic"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving trading metrics"
         )
-    return True
+
+@app.get("/api/trading/trades")
+@limiter.limit("30/minute")
+async def get_trade_history(
+    request: Request,
+    symbol: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    api_key: str = Security(api_key_required)
+):
+    """Get trade history with optional filtering."""
+    try:
+        trades = list(trading_metrics.trades.values())
+        
+        # Apply filters
+        if symbol:
+            trades = [t for t in trades if t.symbol == symbol]
+            
+        # Sort by exit time (most recent first)
+        trades.sort(key=lambda t: t.exit_time, reverse=True)
+        
+        # Apply pagination
+        paginated_trades = trades[offset:offset + limit]
+        
+        return {
+            "status": "success",
+            "data": [vars(trade) for trade in paginated_trades],
+            "pagination": {
+                "total": len(trades),
+                "limit": limit,
+                "offset": offset
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error getting trade history: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving trade history"
+        )
+
+# Error handlers
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Handle HTTP exceptions with JSON responses."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"status": "error", "detail": exc.detail}
+    )
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Handle unexpected exceptions with JSON responses."""
+    logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"status": "error", "detail": "Internal server error"}
+    )
+
+# Startup event
+@app.on_event("startup")
+async def startup_event():
+    """Initialize the application."""
+    # Initialize trading metrics with default starting equity
+    trading_metrics.initialize_equity(10000.0)  # Default starting equity
+    logger.info("Trading metrics initialized")
+
+if __name__ == "__main__":
+    # In production, use a proper ASGI server like uvicorn with multiple workers
+    uvicorn.run(
+        "monitoring.app:app",
+        host=config.HOST,
+        port=config.PORT,
+        reload=config.RELOAD,
+        log_level="info" if not config.DEBUG else "debug",
+        proxy_headers=True,
+        forwarded_allow_ips="*"
+    )
 
 # Initialize Dash app
 dash_app = Dash(

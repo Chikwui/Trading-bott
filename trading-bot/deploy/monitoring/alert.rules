@@ -1,0 +1,47 @@
+groups:
+- name: order_service_alerts
+  rules:
+  - alert: HighOrderProcessingLatency
+    expr: histogram_quantile(0.99, rate(oms_order_processing_seconds_bucket[1m])) > 0.5
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High order processing latency detected"
+      description: "Order processing p99 latency is {{ $value }} seconds"
+
+  - alert: HighLockContention
+    expr: rate(oms_lock_contention_total[5m]) > 10
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High lock contention detected"
+      description: "Lock contention rate is {{ $value }} per second"
+
+  - alert: CircuitBreakerOpen
+    expr: oms_circuit_breaker_state > 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Circuit breaker is open"
+      description: "Circuit breaker {{ $labels.circuit }} is open"
+
+  - alert: HighErrorRate
+    expr: rate(oms_errors_total[5m]) > 10
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High error rate detected"
+      description: "Error rate is {{ $value }} errors per second"
+
+  - alert: RedisDown
+    expr: up{job="redis_exporter"} == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Redis is down"
+      description: "Redis exporter is not responding"

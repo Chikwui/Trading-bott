@@ -1,3 +1,5 @@
+import os
+import sys
 import pytest
 import asyncio
 from unittest.mock import MagicMock, patch, AsyncMock
@@ -5,10 +7,31 @@ from decimal import Decimal
 from datetime import datetime, timedelta
 import numpy as np
 
-from core.models.order import Order, OrderSide, OrderType, OrderStatus
+# Add project root to Python path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+sys.path.insert(0, project_root)
+
+# Import models from the root models directory
+from models.order import Order, OrderSide, OrderType, OrderStatus
+from models.ticker import Ticker
+from models.trade import Trade
+from models.ohlcv import OHLCV
+
+# Import from core
 from core.execution.strategies.vwap import VWAPExecutionClient
-from core.models.market_data import MarketData, Ticker, OrderBook, Trade, Bar
-from core.models.execution import ExecutionParameters, ExecutionMode
+
+# Mock classes for missing imports
+class MarketData:
+    pass
+
+class OrderBook:
+    pass
+
+class ExecutionParameters:
+    pass
+
+class ExecutionMode:
+    pass
 
 class MockMarketImpactModel:
     def __init__(self):

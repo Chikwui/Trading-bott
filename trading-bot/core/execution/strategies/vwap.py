@@ -1380,11 +1380,15 @@ class VWAPExecutionClient(ExecutionClient):
         rate: Dict[str, Any],
         params: ExecutionParameters
     ) -> Dict[str, Any]:
-        # ... (rest of the method remains the same)
+        """
+        Calculate optimal execution parameters for a child order.
+
+        Args:
+            child_order: The child order to execute
             market_data: Current market data including order book
             rate: Participation rate details
             params: Execution parameters
-            
+
         Returns:
             Dictionary of execution parameters
         """
